@@ -19,7 +19,8 @@ use cli::{FirmCli, FirmCliCommand};
 use commands::build_and_save_graph;
 use files::get_workspace_path;
 
-fn main() -> ExitCode {
+#[tokio::main]
+async fn main() -> ExitCode {
     let cli = FirmCli::parse();
 
     // Set up logging
@@ -73,6 +74,13 @@ fn main() -> ExitCode {
         FirmCliCommand::Query { query } => {
             commands::execute_query(&workspace_path, query, cli.format)
         }
+        FirmCliCommand::Mcp => match commands::start_mcp_server(&workspace_path).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                ui::error_with_details("Failed to start MCP server", &e.to_string());
+                Err(crate::errors::CliError::BuildError)
+            }
+        },
     };
 
     result.map_or(ExitCode::FAILURE, |_| ExitCode::SUCCESS)

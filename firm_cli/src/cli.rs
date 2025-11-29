@@ -66,4 +66,6 @@ pub enum FirmCliCommand {
         /// SQL query to execute (e.g., "SELECT * FROM person", "SHOW ENTITY TYPES")
         query: String,
     },
+    /// Start MCP server for Model Context Protocol integration.
+    Mcp,
 }
