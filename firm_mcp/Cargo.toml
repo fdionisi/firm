@@ -1,0 +1,23 @@
+[package]
+name = "firm_mcp"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rmcp = "0.9"
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+async-trait = "0.1"
+schemars = "1.1"
+toon-format = "0.4.0"
+tokio-util = "0.7.17"
+
+[dependencies.firm_core]
+path = "../firm_core"
+
+[dependencies.firm_ql]
+path = "../firm_ql"
