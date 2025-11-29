@@ -1,7 +1,3 @@
 [workspace]
 members = ["firm_core", "firm_lang", "firm_cli", "firm_ql"]
 resolver = "3"
-
-[workspace.dependencies]
-firm_core = { path = "firm_core" }
-firm_lang = { path = "firm_lang" }

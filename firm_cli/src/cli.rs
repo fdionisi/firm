@@ -61,4 +61,9 @@ pub enum FirmCliCommand {
         /// Target firm file.
         to_file: Option<PathBuf>,
     },
+    /// Execute SQL-like queries against the workspace.
+    Query {
+        /// SQL query to execute (e.g., "SELECT * FROM person", "SHOW ENTITY TYPES")
+        query: String,
+    },
 }
