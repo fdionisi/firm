@@ -404,6 +404,8 @@ impl QueryEngine {
                     let mut field_names = std::collections::BTreeSet::new();
                     for entity_map in entities {
                         for entity in entity_map.values() {
+                            // Inject entity ID as id
+                            field_names.insert("id".to_string());
                             for (field_id, _) in &entity.fields {
                                 field_names.insert(field_id.as_str().to_string());
                             }
@@ -416,6 +418,8 @@ impl QueryEngine {
                     let mut field_names = std::collections::BTreeSet::new();
                     for entity_map in entities {
                         if let Some(entity) = entity_map.get(&table_name) {
+                            // Inject entity ID as table.id
+                            field_names.insert(format!("{}.id", table_name));
                             for (field_id, _) in &entity.fields {
                                 field_names.insert(format!("{}.{}", table_name, field_id.as_str()));
                             }
@@ -452,7 +456,12 @@ impl QueryEngine {
                     for column_name in columns {
                         let mut found_value = None;
                         for entity in entity_map.values() {
-                            if let Some(value) = entity.get_field(&FieldId::new(column_name)) {
+                            if column_name == "id" {
+                                found_value =
+                                    Some(FieldValue::String(entity.id.as_str().to_string()));
+                                break;
+                            } else if let Some(value) = entity.get_field(&FieldId::new(column_name))
+                            {
                                 found_value = Some(value.clone());
                                 break;
                             }
@@ -469,7 +478,11 @@ impl QueryEngine {
                                 .strip_prefix(&format!("{}.", table_name))
                                 .unwrap();
                             if let Some(entity) = entity_map.get(&table_name) {
-                                if let Some(value) = entity.get_field(&FieldId::new(field_name)) {
+                                if field_name == "id" {
+                                    values.push(FieldValue::String(entity.id.as_str().to_string()));
+                                } else if let Some(value) =
+                                    entity.get_field(&FieldId::new(field_name))
+                                {
                                     values.push(value.clone());
                                 } else {
                                     values.push(FieldValue::String("NULL".to_string()));
@@ -691,6 +704,13 @@ impl QueryEngine {
         entity_map: &HashMap<String, Entity>,
         _graph: &EntityGraph,
     ) -> QueryResult<FieldValue> {
+        // Handle id field specially
+        if field_name == "id" {
+            for entity in entity_map.values() {
+                return Ok(FieldValue::String(entity.id.as_str().to_string()));
+            }
+        }
+
         for entity in entity_map.values() {
             if let Some(value) = entity.get_field(&FieldId::new(field_name)) {
                 return Ok(value.clone());
@@ -705,6 +725,11 @@ impl QueryEngine {
         entity: &Entity,
         _graph: &EntityGraph,
     ) -> QueryResult<FieldValue> {
+        // Handle id field specially
+        if field_name == "id" {
+            return Ok(FieldValue::String(entity.id.as_str().to_string()));
+        }
+
         Ok(entity
             .get_field(&FieldId::new(field_name))
             .cloned()
