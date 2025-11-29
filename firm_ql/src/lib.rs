@@ -1526,4 +1526,227 @@ mod tests {
                 .contains("Entity type 'nonexistent_type' not found"));
         }
     }
+
+    #[test]
+    fn test_like_operations_comprehensive() {
+        let graph = create_complex_workspace();
+        let firm_ql = FirmQl::new(graph);
+
+        // Test LIKE with string fields
+        let result = firm_ql.query("SELECT name FROM person WHERE name LIKE 'John%'");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert_eq!(result_set.len(), 1); // John Doe
+
+        // Test LIKE with case sensitivity
+        let result = firm_ql.query("SELECT name FROM person WHERE name LIKE 'john%'");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert_eq!(result_set.len(), 0); // Should be case sensitive
+
+        // Test ILIKE (case insensitive)
+        let result = firm_ql.query("SELECT name FROM person WHERE name ILIKE 'john%'");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert_eq!(result_set.len(), 1); // Should match John Doe
+
+        // Test NOT LIKE
+        let result = firm_ql.query("SELECT name FROM person WHERE name NOT LIKE 'John%'");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert_eq!(result_set.len(), 2); // Should exclude John Doe, leaving Jane Smith and Alice Johnson
+
+        // Test LIKE with wildcards in middle
+        let result = firm_ql.query("SELECT name FROM task WHERE name LIKE '%ML%'");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert!(result_set.len() > 0);
+
+        // Test LIKE with email patterns
+        let result = firm_ql.query("SELECT name FROM person WHERE email LIKE '%@acme.com'");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert!(result_set.len() > 0);
+
+        // Test LIKE with exact match (no wildcards)
+        let result = firm_ql.query("SELECT name FROM person WHERE name LIKE 'John Doe'");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert_eq!(result_set.len(), 1);
+    }
+
+    #[test]
+    fn test_like_operations_with_references() {
+        let graph = create_complex_workspace();
+        let firm_ql = FirmQl::new(graph);
+
+        // Test LIKE on reference fields - should match entity IDs
+        let result = firm_ql.query("SELECT name FROM task WHERE assignee_ref LIKE '%john%'");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert!(result_set.len() > 0); // Should find tasks assigned to john_doe
+
+        // Test ILIKE on reference fields
+        let result = firm_ql.query("SELECT name FROM task WHERE assignee_ref ILIKE '%JOHN%'");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert!(result_set.len() > 0); // Should find tasks assigned to john_doe
+
+        // Test NOT LIKE on reference fields
+        let result = firm_ql.query("SELECT name FROM task WHERE assignee_ref NOT LIKE '%alice%'");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert!(result_set.len() > 0); // Should exclude tasks assigned to alice
+
+        // Test LIKE with project references
+        let result = firm_ql.query("SELECT name FROM task WHERE source_ref LIKE '%ai_platform%'");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert!(result_set.len() > 0); // Should find tasks from ai_platform project
+    }
+
+    #[test]
+    fn test_like_operations_edge_cases() {
+        let graph = create_complex_workspace();
+        let firm_ql = FirmQl::new(graph);
+
+        // Test LIKE with no matches
+        let result = firm_ql.query("SELECT name FROM person WHERE name LIKE 'NonExistent%'");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert_eq!(result_set.len(), 0);
+
+        // Test LIKE with empty pattern (should not match anything)
+        let result = firm_ql.query("SELECT name FROM person WHERE name LIKE ''");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert_eq!(result_set.len(), 0);
+
+        // Test LIKE with just wildcards
+        let result = firm_ql.query("SELECT name FROM person WHERE name LIKE '%'");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert_eq!(result_set.len(), 3); // Should match all persons: John Doe, Jane Smith, Alice Johnson
+
+        // Test LIKE with multiple wildcards
+        let result = firm_ql.query("SELECT name FROM person WHERE name LIKE '%o%o%'");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert_eq!(result_set.len(), 2); // Should match John Doe and Alice Johnson (both have two 'o's)
+
+        // Test LIKE with special characters
+        let result = firm_ql.query("SELECT email FROM person WHERE email LIKE '%.com'");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert_eq!(result_set.len(), 2); // Should match john@acme.com and alice@acme.com
+    }
+
+    #[test]
+    fn test_like_operations_complex_queries() {
+        let graph = create_complex_workspace();
+        let firm_ql = FirmQl::new(graph);
+
+        // Test LIKE with AND conditions
+        let result =
+            firm_ql.query("SELECT name FROM person WHERE name LIKE 'J%' AND email LIKE '%acme%'");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert!(result_set.len() > 0);
+
+        // Test LIKE with OR conditions
+        let result =
+            firm_ql.query("SELECT name FROM person WHERE name LIKE 'John%' OR name LIKE 'Jane%'");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert!(result_set.len() >= 2);
+
+        // Test mixed LIKE and ILIKE
+        let result =
+            firm_ql.query("SELECT name FROM person WHERE name LIKE 'John%' OR name ILIKE 'alice%'");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert!(result_set.len() >= 2);
+
+        // Test LIKE with other operators
+        let result =
+            firm_ql.query("SELECT name FROM task WHERE name LIKE '%ML%' AND is_completed = false");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert_eq!(result_set.len(), 1); // Should match "Set up ML pipeline" which is not completed
+
+        // Test NOT LIKE with other conditions
+        let result = firm_ql
+            .query("SELECT name FROM person WHERE name NOT LIKE 'Test%' AND email LIKE '%@%'");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert!(result_set.len() > 0);
+    }
+
+    #[test]
+    fn test_business_model_canvas_ref_scenario() {
+        // Test the user's original scenario
+        let mut graph = EntityGraph::new();
+
+        let business_model_canvas = Entity::new(
+            firm_core::EntityId::new("business_model_canvas.kaphera_bmx"),
+            EntityType::new("business_model_canvas"),
+        )
+        .with_field(
+            FieldId::new("name"),
+            FieldValue::String("Kaphera BMX".to_string()),
+        );
+
+        let value_prop = Entity::new(
+            firm_core::EntityId::new("value_proposition_assumption.vp1"),
+            EntityType::new("value_proposition_assumption"),
+        )
+        .with_field(
+            FieldId::new("title"),
+            FieldValue::String("Key Value Proposition".to_string()),
+        )
+        .with_field(
+            FieldId::new("statement"),
+            FieldValue::String("We solve customer pain points".to_string()),
+        )
+        .with_field(
+            FieldId::new("importance_level"),
+            FieldValue::String("High".to_string()),
+        )
+        .with_field(
+            FieldId::new("status"),
+            FieldValue::String("Active".to_string()),
+        )
+        .with_field(
+            FieldId::new("business_model_canvas_ref"),
+            FieldValue::Reference(firm_core::field::ReferenceValue::Entity(
+                firm_core::EntityId::new("business_model_canvas.kaphera_bmx"),
+            )),
+        );
+
+        graph.add_entity(business_model_canvas).unwrap();
+        graph.add_entity(value_prop).unwrap();
+
+        let firm_ql = FirmQl::new(graph);
+
+        // Test the original query that was failing
+        let result = firm_ql.query("SELECT title, statement, importance_level, status FROM value_proposition_assumption WHERE business_model_canvas_ref LIKE '%kaphera%'");
+        assert!(
+            result.is_ok(),
+            "Query should succeed with reference LIKE operation"
+        );
+        let result_set = result.unwrap();
+        assert_eq!(result_set.len(), 1, "Should find one matching record");
+
+        // Test case insensitive version
+        let result = firm_ql.query("SELECT title FROM value_proposition_assumption WHERE business_model_canvas_ref ILIKE '%KAPHERA%'");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert_eq!(result_set.len(), 1);
+
+        // Test NOT LIKE
+        let result = firm_ql.query("SELECT title FROM value_proposition_assumption WHERE business_model_canvas_ref NOT LIKE '%other%'");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert_eq!(result_set.len(), 1);
+    }
 }

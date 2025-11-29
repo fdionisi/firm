@@ -995,41 +995,108 @@ impl QueryEngine {
         pattern: &FieldValue,
         case_insensitive: bool,
     ) -> QueryResult<bool> {
-        match (text, pattern) {
-            (FieldValue::String(text_str), FieldValue::String(pattern_str)) => {
-                let text_to_match = if case_insensitive {
-                    text_str.to_lowercase()
-                } else {
-                    text_str.clone()
-                };
-                let pattern_to_match = if case_insensitive {
-                    pattern_str.to_lowercase()
-                } else {
-                    pattern_str.clone()
-                };
+        // Convert both operands to strings for comparison
+        let text_str = match text {
+            FieldValue::String(s) => s.clone(),
+            FieldValue::Reference(r) => r.to_string(),
+            FieldValue::Integer(i) => i.to_string(),
+            FieldValue::Float(f) => f.to_string(),
+            FieldValue::Boolean(b) => b.to_string(),
+            FieldValue::DateTime(dt) => dt.to_string(),
+            FieldValue::Path(p) => p.display().to_string(),
+            FieldValue::Currency { amount, currency } => format!("{} {}", amount, currency),
+            FieldValue::List(_) => {
+                return Err(QueryError::syntax(
+                    "LIKE pattern matching not supported for List fields",
+                    0,
+                ))
+            }
+        };
 
-                if pattern_to_match.contains('%') {
-                    let parts: Vec<&str> = pattern_to_match.split('%').collect();
-                    if parts.len() == 2 {
-                        if parts[0].is_empty() {
-                            Ok(text_to_match.ends_with(parts[1]))
-                        } else if parts[1].is_empty() {
-                            Ok(text_to_match.starts_with(parts[0]))
-                        } else {
-                            Ok(text_to_match.starts_with(parts[0])
-                                && text_to_match.ends_with(parts[1]))
+        let pattern_str = match pattern {
+            FieldValue::String(s) => s.clone(),
+            FieldValue::Reference(r) => r.to_string(),
+            FieldValue::Integer(i) => i.to_string(),
+            FieldValue::Float(f) => f.to_string(),
+            FieldValue::Boolean(b) => b.to_string(),
+            FieldValue::DateTime(dt) => dt.to_string(),
+            FieldValue::Path(p) => p.display().to_string(),
+            FieldValue::Currency { amount, currency } => format!("{} {}", amount, currency),
+            FieldValue::List(_) => {
+                return Err(QueryError::syntax(
+                    "LIKE pattern matching not supported for List fields",
+                    0,
+                ))
+            }
+        };
+
+        let text_to_match = if case_insensitive {
+            text_str.to_lowercase()
+        } else {
+            text_str
+        };
+        let pattern_to_match = if case_insensitive {
+            pattern_str.to_lowercase()
+        } else {
+            pattern_str
+        };
+
+        if pattern_to_match.contains('%') {
+            // Convert SQL LIKE pattern to a proper regex-like matching
+            let parts: Vec<&str> = pattern_to_match.split('%').collect();
+
+            if parts.len() == 2 {
+                // Simple case: one wildcard
+                if parts[0].is_empty() {
+                    Ok(text_to_match.ends_with(parts[1]))
+                } else if parts[1].is_empty() {
+                    Ok(text_to_match.starts_with(parts[0]))
+                } else {
+                    Ok(text_to_match.starts_with(parts[0]) && text_to_match.ends_with(parts[1]))
+                }
+            } else {
+                // Multiple wildcards: need to match all non-empty parts in order
+                let mut current_pos = 0;
+                let text_chars: Vec<char> = text_to_match.chars().collect();
+
+                for (i, part) in parts.iter().enumerate() {
+                    if part.is_empty() {
+                        continue; // Skip empty parts from consecutive %% or leading/trailing %
+                    }
+
+                    let part_chars: Vec<char> = part.chars().collect();
+
+                    if i == 0 {
+                        // First non-empty part must match at the beginning
+                        if text_chars.len() < part_chars.len()
+                            || text_chars[0..part_chars.len()] != part_chars[..]
+                        {
+                            return Ok(false);
+                        }
+                        current_pos = part_chars.len();
+                    } else if i == parts.len() - 1 {
+                        // Last non-empty part must match at the end
+                        if text_chars.len() < current_pos + part_chars.len()
+                            || text_chars[text_chars.len() - part_chars.len()..] != part_chars[..]
+                        {
+                            return Ok(false);
                         }
                     } else {
-                        Ok(text_to_match.contains(&pattern_to_match.replace('%', "")))
+                        // Middle parts: find next occurrence after current position
+                        let remaining_text: String = text_chars[current_pos..].iter().collect();
+                        if let Some(pos) =
+                            remaining_text.find(&part_chars.iter().collect::<String>())
+                        {
+                            current_pos += pos + part_chars.len();
+                        } else {
+                            return Ok(false);
+                        }
                     }
-                } else {
-                    Ok(text_to_match == pattern_to_match)
                 }
+                Ok(true)
             }
-            _ => Err(QueryError::syntax(
-                "LIKE pattern matching requires strings",
-                0,
-            )),
+        } else {
+            Ok(text_to_match == pattern_to_match)
         }
     }
 }
