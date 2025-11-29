@@ -1736,4 +1736,329 @@ mod tests {
         let results = firm_ql.query("SELECT person.* FROM person").unwrap();
         assert!(results.columns.iter().any(|col| col == "person.id"));
     }
+
+    #[test]
+    fn test_where_with_references() {
+        let mut graph = EntityGraph::new();
+
+        let tomato_inc = Entity::new(
+            firm_core::EntityId::new("organization.tomato_inc"),
+            EntityType::new("organization"),
+        )
+        .with_field(
+            FieldId::new("name"),
+            FieldValue::String("Tomato Inc".to_string()),
+        );
+
+        let beans_ltd = Entity::new(
+            firm_core::EntityId::new("organization.beans_ltd"),
+            EntityType::new("organization"),
+        )
+        .with_field(
+            FieldId::new("name"),
+            FieldValue::String("Beans Ltd".to_string()),
+        );
+
+        let employee1 = Entity::new(
+            firm_core::EntityId::new("employee.john_tomato"),
+            EntityType::new("employee"),
+        )
+        .with_field(
+            FieldId::new("name"),
+            FieldValue::String("John Smith".to_string()),
+        )
+        .with_field(
+            FieldId::new("organization_ref"),
+            FieldValue::String("organization.tomato_inc".to_string()),
+        );
+
+        let employee2 = Entity::new(
+            firm_core::EntityId::new("employee.jane_tomato"),
+            EntityType::new("employee"),
+        )
+        .with_field(
+            FieldId::new("name"),
+            FieldValue::String("Jane Doe".to_string()),
+        )
+        .with_field(
+            FieldId::new("organization_ref"),
+            FieldValue::String("organization.tomato_inc".to_string()),
+        );
+
+        let employee3 = Entity::new(
+            firm_core::EntityId::new("employee.bob_beans"),
+            EntityType::new("employee"),
+        )
+        .with_field(
+            FieldId::new("name"),
+            FieldValue::String("Bob Johnson".to_string()),
+        )
+        .with_field(
+            FieldId::new("organization_ref"),
+            FieldValue::String("organization.beans_ltd".to_string()),
+        );
+
+        let employee4 = Entity::new(
+            firm_core::EntityId::new("employee.alice_beans"),
+            EntityType::new("employee"),
+        )
+        .with_field(
+            FieldId::new("name"),
+            FieldValue::String("Alice Brown".to_string()),
+        )
+        .with_field(
+            FieldId::new("organization_ref"),
+            FieldValue::String("organization.beans_ltd".to_string()),
+        );
+
+        graph.add_entity(tomato_inc).unwrap();
+        graph.add_entity(beans_ltd).unwrap();
+        graph.add_entity(employee1).unwrap();
+        graph.add_entity(employee2).unwrap();
+        graph.add_entity(employee3).unwrap();
+        graph.add_entity(employee4).unwrap();
+
+        graph.build();
+        let firm_ql = FirmQl::new(graph);
+
+        let results = firm_ql
+            .query("SELECT * FROM employee WHERE organization_ref = 'organization.tomato_inc'")
+            .unwrap();
+        assert_eq!(results.rows.len(), 2);
+
+        for row in &results.rows {
+            let org_ref_index = results
+                .columns
+                .iter()
+                .position(|c| c == "organization_ref")
+                .unwrap();
+            if let FieldValue::String(org_ref) = &row.values[org_ref_index] {
+                assert_eq!(org_ref, "organization.tomato_inc");
+            }
+        }
+
+        let results = firm_ql.query("SELECT * FROM employee LIMIT 1").unwrap();
+        assert_eq!(results.rows.len(), 1);
+    }
+    #[test]
+    fn test_reference_string_equality_issue() {
+        let mut graph = EntityGraph::new();
+
+        let business_model_canvas = Entity::new(
+            firm_core::EntityId::new("business_model_canvas.tomato_inc"),
+            EntityType::new("business_model_canvas"),
+        )
+        .with_field(
+            FieldId::new("name"),
+            FieldValue::String("Tomato Inc Business Model".to_string()),
+        )
+        .with_field(
+            FieldId::new("organization_ref"),
+            FieldValue::Reference(firm_core::field::ReferenceValue::Entity(
+                firm_core::EntityId::new("organization.tomato_inc"),
+            )),
+        );
+
+        let organization = Entity::new(
+            firm_core::EntityId::new("organization.tomato_inc"),
+            EntityType::new("organization"),
+        )
+        .with_field(
+            FieldId::new("name"),
+            FieldValue::String("Tomato Inc, Ltd.".to_string()),
+        );
+
+        graph.add_entity(business_model_canvas).unwrap();
+        graph.add_entity(organization).unwrap();
+
+        let firm_ql = FirmQl::new(graph);
+
+        println!("Testing reference equality with string literal...");
+
+        let result = firm_ql.query(
+            "SELECT * FROM business_model_canvas WHERE organization_ref = 'organization.tomato_inc'",
+        );
+        match result {
+            Ok(result_set) => {
+                println!("SUCCESS: Found {} matching records", result_set.len());
+                assert_eq!(
+                    result_set.len(),
+                    1,
+                    "Should find exactly one business model canvas"
+                );
+            }
+            Err(e) => {
+                println!("FAILED: Reference equality query failed: {}", e);
+                panic!("Reference equality with string literal should work");
+            }
+        }
+
+        let result = firm_ql.query(
+            "SELECT * FROM business_model_canvas WHERE organization_ref LIKE '%tomato_inc%'",
+        );
+        match result {
+            Ok(result_set) => {
+                println!("LIKE test: Found {} matching records", result_set.len());
+                assert_eq!(
+                    result_set.len(),
+                    1,
+                    "Should find exactly one business model canvas with LIKE"
+                );
+            }
+            Err(e) => {
+                println!("LIKE test failed: {}", e);
+                panic!("LIKE operation on reference should work");
+            }
+        }
+    }
+
+    #[test]
+    fn test_reference_equality_comprehensive() {
+        let mut graph = EntityGraph::new();
+
+        let organization = Entity::new(
+            firm_core::EntityId::new("organization.tomato_inc"),
+            EntityType::new("organization"),
+        )
+        .with_field(
+            FieldId::new("name"),
+            FieldValue::String("Tomato Inc, Ltd.".to_string()),
+        );
+
+        let business_model_canvas = Entity::new(
+            firm_core::EntityId::new("business_model_canvas.tomato_inc"),
+            EntityType::new("business_model_canvas"),
+        )
+        .with_field(
+            FieldId::new("name"),
+            FieldValue::String("Tomato Inc BMC".to_string()),
+        )
+        .with_field(
+            FieldId::new("organization_ref"),
+            FieldValue::Reference(firm_core::field::ReferenceValue::Entity(
+                firm_core::EntityId::new("organization.tomato_inc"),
+            )),
+        );
+
+        let value_prop = Entity::new(
+            firm_core::EntityId::new("value_proposition_assumption.vp1"),
+            EntityType::new("value_proposition_assumption"),
+        )
+        .with_field(
+            FieldId::new("title"),
+            FieldValue::String("Key Value Prop".to_string()),
+        )
+        .with_field(
+            FieldId::new("business_model_canvas_ref"),
+            FieldValue::Reference(firm_core::field::ReferenceValue::Entity(
+                firm_core::EntityId::new("business_model_canvas.tomato_inc"),
+            )),
+        );
+
+        graph.add_entity(organization).unwrap();
+        graph.add_entity(business_model_canvas).unwrap();
+        graph.add_entity(value_prop).unwrap();
+
+        let firm_ql = FirmQl::new(graph);
+
+        let result = firm_ql
+            .query("SELECT name FROM business_model_canvas WHERE organization_ref = 'organization.tomato_inc'");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert_eq!(result_set.len(), 1);
+
+        let result = firm_ql
+            .query("SELECT name FROM business_model_canvas WHERE 'organization.tomato_inc' = organization_ref");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert_eq!(result_set.len(), 1);
+
+        let result = firm_ql.query(
+            "SELECT name FROM business_model_canvas WHERE organization_ref != 'organization.other'",
+        );
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert_eq!(result_set.len(), 1);
+
+        let result = firm_ql.query("SELECT vp.title FROM value_proposition_assumption vp, business_model_canvas bmc WHERE vp.business_model_canvas_ref = bmc.id");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert_eq!(result_set.len(), 1);
+
+        let result = firm_ql.query("SELECT title FROM value_proposition_assumption WHERE business_model_canvas_ref = 'business_model_canvas.tomato_inc' AND title = 'Key Value Prop'");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert_eq!(result_set.len(), 1);
+
+        let result = firm_ql.query("SELECT title FROM value_proposition_assumption WHERE business_model_canvas_ref = 'business_model_canvas.tomato_inc' OR business_model_canvas_ref = 'business_model_canvas.other'");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert_eq!(result_set.len(), 1);
+
+        let result = firm_ql
+            .query("SELECT title FROM value_proposition_assumption WHERE business_model_canvas_ref LIKE '%tomato_inc%'");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert_eq!(result_set.len(), 1);
+
+        let result = firm_ql.query("SELECT name FROM business_model_canvas WHERE organization_ref = 'organization.tomato_inc' AND name = 'Tomato Inc BMC'");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert_eq!(result_set.len(), 1);
+    }
+
+    #[test]
+    fn test_reference_comparison_edge_cases() {
+        let mut graph = EntityGraph::new();
+
+        let entity1 = Entity::new(
+            firm_core::EntityId::new("test.entity1"),
+            EntityType::new("test_type"),
+        )
+        .with_field(
+            FieldId::new("ref_field"),
+            FieldValue::Reference(firm_core::field::ReferenceValue::Entity(
+                firm_core::EntityId::new("target.a"),
+            )),
+        )
+        .with_field(
+            FieldId::new("string_field"),
+            FieldValue::String("target.a".to_string()),
+        );
+
+        graph.add_entity(entity1).unwrap();
+        let firm_ql = FirmQl::new(graph);
+
+        let result = firm_ql.query("SELECT * FROM test_type WHERE ref_field = string_field");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert_eq!(
+            result_set.len(),
+            1,
+            "Reference should equal string with same content"
+        );
+
+        let result = firm_ql.query("SELECT * FROM test_type WHERE ref_field = 'TARGET.A'");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert_eq!(
+            result_set.len(),
+            0,
+            "Reference comparison should be case sensitive"
+        );
+
+        let result = firm_ql.query("SELECT * FROM test_type WHERE ref_field = ''");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert_eq!(
+            result_set.len(),
+            0,
+            "Reference should not equal empty string"
+        );
+
+        let result = firm_ql.query("SELECT * FROM test_type WHERE ref_field = NULL");
+        assert!(result.is_ok());
+        let result_set = result.unwrap();
+        assert_eq!(result_set.len(), 0, "Reference should not equal NULL");
+    }
 }
