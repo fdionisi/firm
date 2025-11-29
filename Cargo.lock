@@ -445,6 +445,7 @@ dependencies = [
  "log",
  "rust_decimal",
  "serde",
+ "serde_json",
  "sqlparser",
  "thiserror",
 ]

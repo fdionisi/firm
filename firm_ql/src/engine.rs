@@ -404,7 +404,6 @@ impl QueryEngine {
                     let mut field_names = std::collections::BTreeSet::new();
                     for entity_map in entities {
                         for entity in entity_map.values() {
-                            // Inject entity ID as id
                             field_names.insert("id".to_string());
                             for (field_id, _) in &entity.fields {
                                 field_names.insert(field_id.as_str().to_string());
@@ -418,7 +417,6 @@ impl QueryEngine {
                     let mut field_names = std::collections::BTreeSet::new();
                     for entity_map in entities {
                         if let Some(entity) = entity_map.get(&table_name) {
-                            // Inject entity ID as table.id
                             field_names.insert(format!("{}.id", table_name));
                             for (field_id, _) in &entity.fields {
                                 field_names.insert(format!("{}.{}", table_name, field_id.as_str()));
@@ -704,7 +702,6 @@ impl QueryEngine {
         entity_map: &HashMap<String, Entity>,
         _graph: &EntityGraph,
     ) -> QueryResult<FieldValue> {
-        // Handle id field specially
         if field_name == "id" {
             for entity in entity_map.values() {
                 return Ok(FieldValue::String(entity.id.as_str().to_string()));
@@ -725,7 +722,6 @@ impl QueryEngine {
         entity: &Entity,
         _graph: &EntityGraph,
     ) -> QueryResult<FieldValue> {
-        // Handle id field specially
         if field_name == "id" {
             return Ok(FieldValue::String(entity.id.as_str().to_string()));
         }
@@ -999,7 +995,26 @@ impl QueryEngine {
             (FieldValue::Boolean(a), FieldValue::Boolean(b)) => Some(a.cmp(b)),
             (FieldValue::Integer(a), FieldValue::Float(b)) => (*a as f64).partial_cmp(b),
             (FieldValue::Float(a), FieldValue::Integer(b)) => a.partial_cmp(&(*b as f64)),
-            _ => None,
+
+            (FieldValue::Reference(ref_val), FieldValue::String(str_val)) => {
+                Some(ref_val.to_string().cmp(str_val))
+            }
+            (FieldValue::String(str_val), FieldValue::Reference(ref_val)) => {
+                Some(str_val.cmp(&ref_val.to_string()))
+            }
+
+            (FieldValue::Reference(ref1), FieldValue::Reference(ref2)) => {
+                Some(ref1.to_string().cmp(&ref2.to_string()))
+            }
+
+            (left, right) => match (left, right) {
+                (FieldValue::List(_), _) | (_, FieldValue::List(_)) => None,
+                _ => {
+                    let left_str = left.to_string();
+                    let right_str = right.to_string();
+                    Some(left_str.cmp(&right_str))
+                }
+            },
         }
     }
 
@@ -1020,7 +1035,6 @@ impl QueryEngine {
         pattern: &FieldValue,
         case_insensitive: bool,
     ) -> QueryResult<bool> {
-        // Convert both operands to strings for comparison
         let text_str = match text {
             FieldValue::String(s) => s.clone(),
             FieldValue::Reference(r) => r.to_string(),
@@ -1067,11 +1081,9 @@ impl QueryEngine {
         };
 
         if pattern_to_match.contains('%') {
-            // Convert SQL LIKE pattern to a proper regex-like matching
             let parts: Vec<&str> = pattern_to_match.split('%').collect();
 
             if parts.len() == 2 {
-                // Simple case: one wildcard
                 if parts[0].is_empty() {
                     Ok(text_to_match.ends_with(parts[1]))
                 } else if parts[1].is_empty() {
@@ -1080,19 +1092,15 @@ impl QueryEngine {
                     Ok(text_to_match.starts_with(parts[0]) && text_to_match.ends_with(parts[1]))
                 }
             } else {
-                // Multiple wildcards: need to match all non-empty parts in order
                 let mut current_pos = 0;
                 let text_chars: Vec<char> = text_to_match.chars().collect();
 
                 for (i, part) in parts.iter().enumerate() {
-                    if part.is_empty() {
-                        continue; // Skip empty parts from consecutive %% or leading/trailing %
-                    }
+                    if part.is_empty() {}
 
                     let part_chars: Vec<char> = part.chars().collect();
 
                     if i == 0 {
-                        // First non-empty part must match at the beginning
                         if text_chars.len() < part_chars.len()
                             || text_chars[0..part_chars.len()] != part_chars[..]
                         {
@@ -1100,14 +1108,12 @@ impl QueryEngine {
                         }
                         current_pos = part_chars.len();
                     } else if i == parts.len() - 1 {
-                        // Last non-empty part must match at the end
                         if text_chars.len() < current_pos + part_chars.len()
                             || text_chars[text_chars.len() - part_chars.len()..] != part_chars[..]
                         {
                             return Ok(false);
                         }
                     } else {
-                        // Middle parts: find next occurrence after current position
                         let remaining_text: String = text_chars[current_pos..].iter().collect();
                         if let Some(pos) =
                             remaining_text.find(&part_chars.iter().collect::<String>())
