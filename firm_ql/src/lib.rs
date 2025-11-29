@@ -6,6 +6,7 @@
 //!
 //! # Examples
 //!
+//! ## Basic Query
 //! ```no_run
 //! use firm_ql::FirmQl;
 //! use firm_core::graph::EntityGraph;
@@ -17,6 +18,62 @@
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! ## Introspection Queries
+//! ```no_run
+//! use firm_ql::FirmQl;
+//! use firm_core::graph::EntityGraph;
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let graph = EntityGraph::new();
+//! let firm_ql = FirmQl::new(graph);
+//!
+//!
+//! let entity_types = firm_ql.query("SHOW ENTITY TYPES")?;
+//!
+//!
+//! let schema = firm_ql.query("DESCRIBE person")?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## Complete Example
+//! ```
+//! use firm_ql::FirmQl;
+//! use firm_core::{Entity, EntityType, FieldId, graph::EntityGraph};
+//! use firm_core::field::FieldValue;
+//!
+//!
+//! let mut graph = EntityGraph::new();
+//!
+//! let person = Entity::new(
+//!     firm_core::EntityId::new("person.john"),
+//!     EntityType::new("person")
+//! ).with_field(
+//!     FieldId::new("name"),
+//!     FieldValue::String("John Doe".to_string())
+//! ).with_field(
+//!     FieldId::new("email"),
+//!     FieldValue::String("john@example.com".to_string())
+//! ).with_field(
+//!     FieldId::new("age"),
+//!     FieldValue::Integer(30)
+//! );
+//!
+//! graph.add_entity(person).unwrap();
+//! graph.build();
+//!
+//! let firm_ql = FirmQl::new(graph);
+//!
+//! let entity_types = firm_ql.query("SHOW ENTITY TYPES").unwrap();
+//! println!("Entity types: {:?}", entity_types);
+//!
+//! let schema = firm_ql.query("DESCRIBE person").unwrap();
+//! println!("Person schema: {:?}", schema);
+//!
+//! let results = firm_ql.query("SELECT name, age FROM person WHERE age > 25").unwrap();
+//! println!("Query results: {:?}", results);
+//! ```
 
 pub mod engine;
 pub mod error;
@@ -24,8 +81,9 @@ pub mod result;
 
 use engine::QueryEngine;
 use error::{QueryError, QueryResult};
-use firm_core::graph::EntityGraph;
-use result::QueryResultSet;
+use firm_core::field::FieldValue;
+use firm_core::{graph::EntityGraph, EntityType};
+use result::{QueryResultSet, QueryRow};
 use sqlparser::ast::Query;
 
 use sqlparser::dialect::GenericDialect;
@@ -41,9 +99,105 @@ impl FirmQl {
     }
 
     pub fn query(&self, query: &str) -> QueryResult<QueryResultSet> {
+        let trimmed = query.trim();
+
+        if trimmed.eq_ignore_ascii_case("SHOW ENTITY TYPES") {
+            return self.show_entity_types();
+        }
+
+        if let Some(entity_type) = self.parse_describe_query(trimmed) {
+            return self.describe_entity_type(&entity_type);
+        }
+
         let query = parse_query(query)?;
         let engine = QueryEngine::new();
         engine.execute(&query, &self.graph)
+    }
+
+    /// Returns all entity types in the graph
+    fn show_entity_types(&self) -> QueryResult<QueryResultSet> {
+        let entity_types = self.graph.get_all_entity_types();
+        let mut result_set = QueryResultSet::new(vec!["entity_type".to_string()]);
+
+        for entity_type in entity_types {
+            let row = QueryRow::new(vec![FieldValue::String(entity_type.to_string())]);
+            result_set.add_row(row)?;
+        }
+
+        Ok(result_set)
+    }
+
+    /// Returns the schema of a specific entity type by inferring it from existing entities
+    fn describe_entity_type(&self, entity_type: &EntityType) -> QueryResult<QueryResultSet> {
+        let entities = self.graph.list_by_type(entity_type);
+
+        if entities.is_empty() {
+            return Err(QueryError::syntax(
+                &format!("Entity type '{}' not found", entity_type),
+                0,
+            ));
+        }
+
+        let mut field_info = std::collections::HashMap::new();
+
+        for entity in entities {
+            for (field_id, field_value) in &entity.fields {
+                let field_name = field_id.as_str().to_string();
+                let field_type = self.infer_field_type(field_value);
+
+                match field_info.get(&field_name) {
+                    Some(existing_type) if *existing_type == "String" && field_type != "String" => {
+                        field_info.insert(field_name, field_type);
+                    }
+                    None => {
+                        field_info.insert(field_name, field_type);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        let mut result_set =
+            QueryResultSet::new(vec!["field_name".to_string(), "field_type".to_string()]);
+
+        let mut field_names: Vec<_> = field_info.keys().collect();
+        field_names.sort();
+
+        for field_name in field_names {
+            let field_type = field_info.get(field_name).unwrap();
+            let row = QueryRow::new(vec![
+                FieldValue::String(field_name.clone()),
+                FieldValue::String(field_type.clone()),
+            ]);
+            result_set.add_row(row)?;
+        }
+
+        Ok(result_set)
+    }
+
+    /// Parse DESCRIBE queries (case-insensitive)
+    fn parse_describe_query(&self, query: &str) -> Option<EntityType> {
+        let parts: Vec<&str> = query.split_whitespace().collect();
+        if parts.len() == 2 && parts[0].eq_ignore_ascii_case("DESCRIBE") {
+            Some(EntityType::new(parts[1]))
+        } else {
+            None
+        }
+    }
+
+    /// Infer field type from field value
+    fn infer_field_type(&self, field_value: &FieldValue) -> String {
+        match field_value {
+            FieldValue::Boolean(_) => "Boolean".to_string(),
+            FieldValue::String(_) => "String".to_string(),
+            FieldValue::Integer(_) => "Integer".to_string(),
+            FieldValue::Float(_) => "Float".to_string(),
+            FieldValue::Currency { .. } => "Currency".to_string(),
+            FieldValue::Reference(_) => "Reference".to_string(),
+            FieldValue::List(_) => "List".to_string(),
+            FieldValue::DateTime(_) => "DateTime".to_string(),
+            FieldValue::Path(_) => "Path".to_string(),
+        }
     }
 }
 
@@ -1265,5 +1419,111 @@ mod tests {
 
         let result = parse_query("SELECT name FROM person WHERE NOT (name IN ('John', 'Jane'))");
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_show_entity_types() {
+        let graph = create_complex_workspace();
+        let firm_ql = FirmQl::new(graph);
+
+        let result = firm_ql.query("SHOW ENTITY TYPES");
+        assert!(result.is_ok());
+
+        let result_set = result.unwrap();
+        assert_eq!(result_set.columns.len(), 1);
+        assert_eq!(result_set.columns[0], "entity_type");
+
+        assert!(result_set.len() > 0);
+
+        let entity_types: Vec<String> = result_set
+            .rows
+            .iter()
+            .map(|row| {
+                if let FieldValue::String(s) = &row.values[0] {
+                    s.clone()
+                } else {
+                    panic!("Expected string value for entity_type");
+                }
+            })
+            .collect();
+
+        assert!(entity_types.contains(&"person".to_string()));
+        assert!(entity_types.contains(&"organization".to_string()));
+        assert!(entity_types.contains(&"contact".to_string()));
+        assert!(entity_types.contains(&"project".to_string()));
+        assert!(entity_types.contains(&"task".to_string()));
+    }
+
+    #[test]
+    fn test_show_entity_types_case_insensitive() {
+        let graph = create_complex_workspace();
+        let firm_ql = FirmQl::new(graph);
+
+        let result = firm_ql.query("show entity types");
+        assert!(result.is_ok());
+
+        let result = firm_ql.query("Show Entity Types");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_describe_entity_type() {
+        let graph = create_complex_workspace();
+        let firm_ql = FirmQl::new(graph);
+
+        let result = firm_ql.query("DESCRIBE person");
+        assert!(result.is_ok());
+
+        let result_set = result.unwrap();
+        assert_eq!(result_set.columns.len(), 2);
+        assert_eq!(result_set.columns[0], "field_name");
+        assert_eq!(result_set.columns[1], "field_type");
+
+        assert!(result_set.len() > 0);
+
+        let field_names: Vec<String> = result_set
+            .rows
+            .iter()
+            .map(|row| {
+                if let FieldValue::String(s) = &row.values[0] {
+                    s.clone()
+                } else {
+                    panic!("Expected string value for field_name");
+                }
+            })
+            .collect();
+
+        assert!(field_names.contains(&"name".to_string()));
+        assert!(field_names.contains(&"email".to_string()));
+    }
+
+    #[test]
+    fn test_describe_entity_type_case_insensitive() {
+        let graph = create_complex_workspace();
+        let firm_ql = FirmQl::new(graph);
+
+        let result = firm_ql.query("describe organization");
+        assert!(result.is_ok());
+
+        let result = firm_ql.query("DESCRIBE Organization");
+        assert!(result.is_ok());
+
+        let result = firm_ql.query("Describe organization");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_describe_nonexistent_entity_type() {
+        let graph = create_complex_workspace();
+        let firm_ql = FirmQl::new(graph);
+
+        let result = firm_ql.query("DESCRIBE nonexistent_type");
+        assert!(result.is_err());
+
+        if let Err(e) = result {
+            assert!(e
+                .to_string()
+                .contains("Entity type 'nonexistent_type' not found"));
+        }
     }
 }
