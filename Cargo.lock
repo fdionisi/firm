@@ -738,12 +738,14 @@ checksum = "52051878f80a721bb68ebfbc930e07b65ba72f2da88968ea5c06fd6ca3d3a127"
 name = "firm-cli"
 version = "0.3.0"
 dependencies = [
+ "anyhow",
  "chrono",
  "clap",
  "console 0.16.1",
  "convert_case",
  "firm_core",
  "firm_lang",
+ "firm_mcp",
  "firm_ql",
  "indicatif",
  "indicatif-log-bridge",
@@ -751,9 +753,12 @@ dependencies = [
  "iso_currency",
  "log",
  "pathdiff",
+ "rmcp",
  "rust_decimal",
  "serde",
  "serde_json",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

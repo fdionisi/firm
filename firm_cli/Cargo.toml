@@ -31,3 +31,8 @@ chrono = "0.4.41"
 rust_decimal = { version = "1.37", features = ["serde-with-str"] }
 iso_currency = { version = "0.5", features = ["with-serde", "iterator"] }
 pathdiff = "0.2.3"
+firm_mcp = { version = "0.1.0", path = "../firm_mcp" }
+tokio = { version = "1.48.0", features = ["full"] }
+rmcp = { version = "0.9.1", features = ["transport-io"] }
+anyhow = "1.0.100"
+tracing = "0.1.43"
