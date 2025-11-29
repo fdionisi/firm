@@ -389,6 +389,7 @@ dependencies = [
  "convert_case",
  "firm_core",
  "firm_lang",
+ "firm_ql",
  "indicatif",
  "indicatif-log-bridge",
  "inquire",

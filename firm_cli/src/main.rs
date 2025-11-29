@@ -70,6 +70,9 @@ fn main() -> ExitCode {
         FirmCliCommand::Add { to_file } => {
             commands::add_entity(&workspace_path, to_file, cli.format)
         }
+        FirmCliCommand::Query { query } => {
+            commands::execute_query(&workspace_path, query, cli.format)
+        }
     };
 
     result.map_or(ExitCode::FAILURE, |_| ExitCode::SUCCESS)
