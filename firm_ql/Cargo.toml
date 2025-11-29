@@ -1,0 +1,20 @@
+[package]
+name = "firm_ql"
+version = "0.1.0"
+edition = "2021"
+description = "SQL-like query language for Firm workspaces"
+license = "MIT"
+repository = "https://github.com/42futures/firm"
+
+[dependencies]
+firm_core = { path = "../firm_core" }
+firm_lang = { path = "../firm_lang" }
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "1.0"
+log = "0.4"
+iso_currency = "0.5"
+rust_decimal = "1.38"
+sqlparser = "0.53"
+
+[dev-dependencies]
+env_logger = "0.10"
